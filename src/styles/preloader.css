@@ -5,11 +5,10 @@
    ========================================================================== */
 
 :root {
-  --preloader-bg: #0a0c10;
-  --preloader-bg-glow: #12161d;
-  --preloader-accent: #7dd3fc;
-  --preloader-logo-color: #7e49f2; /* sampled from logo.png */
-  --preloader-brand-color: #aeb7c6;
+  --preloader-bg: #6c35d4;
+  --preloader-accent: #ffffff;
+  --preloader-logo-color: #ffffff;
+  --preloader-brand-color: #ffffff;
   --preloader-z: 9999;
 }
 
@@ -24,12 +23,8 @@
   align-items: center;
   justify-content: center;
   overflow: hidden;
+  /* Solid premium purple — no gradients, no decoration. */
   background: var(--preloader-bg);
-  background-image: radial-gradient(
-    120% 90% at 50% 40%,
-    var(--preloader-bg-glow) 0%,
-    var(--preloader-bg) 65%
-  );
 }
 
 /* --------------------------------------------------------------------------
@@ -111,8 +106,8 @@
   gap: 1.5rem;
   padding: 2rem;
   text-align: center;
-  background: #0a0c10;
-  color: #e8ecf4;
+  background: var(--preloader-bg);
+  color: #ffffff;
   font-family: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto,
     Helvetica, Arial, sans-serif;
 }
@@ -126,17 +121,17 @@
 .demo-page p {
   margin: 0;
   max-width: 46ch;
-  color: #9aa4b5;
+  color: rgba(255, 255, 255, 0.72);
   line-height: 1.6;
 }
 
 .demo-replay {
   margin-top: 0.5rem;
   padding: 0.7rem 1.4rem;
-  border: 1px solid #2a3240;
+  border: 1px solid rgba(255, 255, 255, 0.4);
   border-radius: 999px;
   background: transparent;
-  color: #e8ecf4;
+  color: #ffffff;
   font: inherit;
   font-size: 0.9rem;
   cursor: pointer;
@@ -144,11 +139,11 @@
 }
 
 .demo-replay:hover {
-  background: #161b24;
-  border-color: #3a4557;
+  background: rgba(255, 255, 255, 0.12);
+  border-color: rgba(255, 255, 255, 0.7);
 }
 
 .demo-replay:focus-visible {
-  outline: 2px solid var(--preloader-accent);
+  outline: 2px solid #ffffff;
   outline-offset: 2px;
 }

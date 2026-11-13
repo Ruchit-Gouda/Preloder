@@ -332,7 +332,9 @@ mkdirSync(dirname(REF_SVG), { recursive: true });
 writeFileSync(
   REF_SVG,
   `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${bw.toFixed(2)} ${bh.toFixed(2)}" ` +
-    `width="${bw.toFixed(2)}" height="${bh.toFixed(2)}">\n<g fill="#7E49F2">\n${refPaths}\n</g>\n</svg>\n`,
+    `width="${bw.toFixed(2)}" height="${bh.toFixed(2)}">\n` +
+    `<rect width="${bw.toFixed(2)}" height="${bh.toFixed(2)}" fill="#6C35D4"/>\n` +
+    `<g fill="#FFFFFF">\n${refPaths}\n</g>\n</svg>\n`,
 );
 
 console.log(`\nwrote ${OUT}`);

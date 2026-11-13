@@ -37,6 +37,21 @@ the app; delete it if you like.
 
 ---
 
+## Visual design
+
+- **Background:** solid premium purple `#6C35D4` — no gradients, borders, cards,
+  or decoration.
+- **Logo:** pure white `#FFFFFF`, every piece included, for strong contrast.
+- **No clipping:** the pieces are plain `<path>` elements. There is no
+  `clipPath`, no `mask`, no image cropping, and no clip-based reveal anywhere —
+  the geometric cut happens offline in the build script, and only GSAP
+  `transform`/`opacity` drives the animation at runtime.
+- **Verified in-browser:** `backgroundColor: rgb(108, 53, 212)`,
+  `backgroundImage: none`, piece `fill: rgb(255, 255, 255)`, and **0**
+  clip-path / mask / gradient elements.
+
+---
+
 ## Quick start
 
 ```bash
@@ -290,8 +305,8 @@ Give `<Preloader>` a changing `key` — that's the clean remount:
 ## Production checklist
 
 - [ ] Set your `brandName` (currently `"Your Brand"`) or pass `null`.
-- [ ] Adjust `--preloader-logo-color` / `--preloader-bg` in `preloader.css`
-      (the logo colour is sampled from your artwork: `#7E49F2`).
+- [ ] Confirm the palette in `preloader.css`: solid purple `--preloader-bg`
+      (`#6C35D4`) and white pieces `--preloader-logo-color` (`#FFFFFF`).
 - [ ] Re-tune `animationConfig.js` timings to taste.
 - [ ] Delete the `.demo-page` markup and replay button in `src/App.jsx`
       (and its CSS at the bottom of `preloader.css`).

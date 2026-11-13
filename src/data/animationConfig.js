@@ -53,9 +53,9 @@ export const ANIMATION_CONFIG = {
   },
 
   glow: {
-    rgb: '125, 211, 252', // accent used for the Phase 3 highlight
-    strength: 12, // peak drop-shadow blur radius in px
-    peak: 0.55, // peak alpha of the glow
+    rgb: '255, 255, 255', // subtle white highlight against the purple
+    strength: 14, // peak drop-shadow blur radius in px
+    peak: 0.5, // peak alpha of the glow
   },
 
   // How long the overlay takes to fade out once the logo is assembled.

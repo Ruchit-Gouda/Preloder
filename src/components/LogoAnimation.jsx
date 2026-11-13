@@ -38,6 +38,24 @@ function buildScatter(count, [, , w, h], config) {
 }
 
 /**
+ * Fit a staggered tween inside its phase window.
+ *
+ * GSAP staggers extend a group's total time by `stagger * (count - 1)`. Left
+ * unchecked, a 2s "assemble" phase with N pieces would overrun into the next
+ * phase. This caps the total stagger at 70% of the window and shortens each
+ * piece's tween so the whole group always finishes exactly on the phase
+ * boundary — regardless of how many pieces the grid produces.
+ */
+function fitStagger(phaseDuration, perPieceStagger, count) {
+  const gaps = Math.max(0, count - 1);
+  const totalStagger = Math.min(perPieceStagger * gaps, phaseDuration * 0.7);
+  return {
+    duration: Math.max(0.1, phaseDuration - totalStagger),
+    stagger: gaps > 0 ? totalStagger / gaps : 0,
+  };
+}
+
+/**
  * LogoAnimation
  * -----------------------------------------------------------------------------
  * Owns the SVG element and the GSAP timeline. All paths live in LogoParts;
@@ -124,19 +142,21 @@ export default function LogoAnimation({
         phases.appear.start,
       );
 
+      const appearTiming = fitStagger(phases.appear.duration, stagger.appear, pieces.length);
       tl.to(
         pieces,
         {
           opacity: 1,
           scale: scale.appearEnd,
-          duration: phases.appear.duration,
-          stagger: stagger.appear,
+          duration: appearTiming.duration,
+          stagger: appearTiming.stagger,
           ease: easing.appear,
         },
         phases.appear.start,
       );
 
       /* ── PHASE 2 · assemble ───────────────────────────────────────────── */
+      const assembleTiming = fitStagger(phases.assemble.duration, stagger.assemble, pieces.length);
       tl.to(
         pieces,
         {
@@ -144,8 +164,8 @@ export default function LogoAnimation({
           y: 0,
           rotation: 0,
           scale: 1,
-          duration: phases.assemble.duration,
-          stagger: stagger.assemble,
+          duration: assembleTiming.duration,
+          stagger: assembleTiming.stagger,
           ease: easing.assemble,
         },
         phases.assemble.start,
