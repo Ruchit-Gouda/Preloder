@@ -11,27 +11,36 @@ flying into place.
 ## Your logo, already split
 
 Your `logo.svg` (the Potrace vector of the mark, `viewBox="0 0 2893 2662"`) has
-been split into **10 independent vector pieces** by
+been split into **9 independent vector pieces** by
 `scripts/split-logo-svg.mjs`, and wired into `src/data/logoParts.js`.
 
 The split is **exact, not a re-trace**: the script reads your path data,
 flattens the curves, applies your `scale(0.1,-0.1)` transform, and clips the
-outline against a 3×4 grid. The tiles partition the artwork, so the pieces
-reconstruct it perfectly.
+outline along the artwork's own structure — not an arbitrary grid. The cuts
+follow the logo:
+
+- **`part-sail-1…4`** — the curved upper mass, fanned into 4 radial wedges from
+  the corner where its straight edges meet.
+- **`part-band-1…5`** — the lower diagonal band, sliced into 5 segments
+  perpendicular to its measured principal axis.
+
+The horizontal seam at `y ≈ 0.691·height` is an edge that already exists in the
+artwork. Every cut is a plane through one convex region, so the pieces partition
+the artwork exactly: shared edges, no gaps, no overlaps.
 
 Verified in a real browser by rasterising the assembled pieces and comparing to
 your source SVG:
 
 | Metric | Result |
 |---|---|
-| IoU vs `logo.svg` | **0.9994** |
-| Logo coverage | **99.97%** |
-| Missing pixels | 0.034% |
-| Extra pixels | 0.025% |
+| IoU vs `logo.svg` | **0.99935** |
+| Logo coverage | **99.962%** |
+| Missing pixels | 0.038% |
+| Extra pixels | 0.027% |
 
 The tiny residuals are sub-pixel edge anti-aliasing, not gaps or overlaps.
 
-`public/logo-reference.svg` is the assembled artwork (all 10 pieces) — open it
+`public/logo-reference.svg` is the assembled artwork (all 9 pieces) — open it
 in a browser to eyeball the result. It's a verification artifact, not used by
 the app; delete it if you like.
 
@@ -90,33 +99,41 @@ public/
 
 ---
 
-## Re-splitting / changing the grid
+## Re-splitting along the logo's features
 
 ```bash
 npm run logo:split          # node scripts/split-logo-svg.mjs
 ```
 
-Edit the `CONFIG` block at the top of `scripts/split-logo-svg.mjs`:
+Edit the `FEATURES` block at the top of `scripts/split-logo-svg.mjs`:
 
 ```js
 const SRC = 'logo.svg';     // any vector SVG
-const COLS = 3;             // grid columns
-const ROWS = 4;             // grid rows   -> up to 12 pieces
+const FEATURES = {
+  seamY: 0.6913,            // horizontal seam, as a fraction of artwork height
+  sailCornerX: 0.459,       // fan origin, as a fraction of artwork width
+  sailSlices: 4,            // radial wedges in the upper "sail"
+  bandSegments: 5,          // slices across the lower diagonal band
+};
 const FLATTEN_TOL = 1;      // curve flattening tolerance (source units)
-const MIN_AREA = 40;        // drop slivers smaller than this
+const MIN_AREA = 120;       // drop slivers smaller than this
 ```
 
-- **More pieces?** Raise `COLS`/`ROWS` (e.g. 4×4 = up to 16). More pieces = more
+- **More pieces?** Raise `sailSlices` / `bandSegments`. More pieces = more
   staggered, puzzle-like assembly. Lower `stagger.assemble` if you add many.
-- **Fewer, chunkier pieces?** 2×2 or 2×3.
+- **Fewer, chunkier pieces?** `sailSlices: 2`, `bandSegments: 3`.
+- **Different logo?** Measure its own features first — where the two masses
+  meet horizontally (`seamY`) and where the upper mass's straight edges meet
+  (`sailCornerX`). The band axis is measured automatically from the geometry,
+  so it need not be 45°.
 - **Higher fidelity?** Lower `FLATTEN_TOL` (e.g. `0.5`).
 
-The script prints a per-piece report and rewrites `src/data/logoParts.js` and
-`public/logo-reference.svg`.
+The script prints a per-piece report (area, bounding box, total partition delta)
+and rewrites `src/data/logoParts.js` and `public/logo-reference.svg`. A healthy
+run reports `total piece area == artwork area` with a `0.0000%` delta.
 
-> The grid is a *straight, deterministic* cut. If you want pieces that follow
-> the artwork's own features instead, use `tools/svg-splitter.html` (below) or
-> hand-author `logoParts.js`.
+> The cuts are deterministic and structural. For hand-picked groups, use
+> `tools/svg-splitter.html` (below) or hand-author `logoParts.js`.
 
 ---
 
@@ -138,7 +155,7 @@ shapes you want as pieces, rename them, and export a ready-to-paste
 `logoParts.js`. Use this when:
 
 - your SVG already has `<g id="…">` groups you want to keep, or
-- you want to pick pieces by hand rather than by grid.
+- you want to pick pieces by hand rather than by an automatic cut.
 
 ### Manual option
 
@@ -199,7 +216,7 @@ phases: {
 
 ```js
 scatter: {
-  spread: { min: 0.55, max: 1.15 }, // radius as a fraction of the SVG's short side
+  spread: { min: 0.65, max: 1.35 }, // radius as a fraction of the SVG's short side
   angleOffset: 0.6,                  // rotate the whole spiral (radians)
 },
 ```
@@ -211,21 +228,21 @@ on every replay.
 ### Change rotation
 
 ```js
-rotation: { appear: 26 }, // degrees of tilt while scattered; animates to 0
+rotation: { appear: 34 }, // degrees of tilt while scattered; animates to 0
 ```
 
 ### Change stagger
 
 ```js
-stagger: { appear: 0.06, assemble: 0.1 }, // seconds between consecutive pieces
+stagger: { appear: 0.07, assemble: 0.12 }, // seconds between consecutive pieces
 ```
 
 ### Change scale / glow / easing
 
 ```js
-scale:  { appear: 0.6, appearEnd: 1.12, lockPop: 1.04 },
-glow:   { rgb: '125, 211, 252', strength: 12, peak: 0.55 },
-easing: { appear: 'power2.out', assemble: 'power3.inOut', lock: 'back.out(1.7)', reveal: 'power2.out' },
+scale:  { appear: 0.45, appearEnd: 1.08, lockPop: 1.03 },
+glow:   { rgb: '255, 255, 255', strength: 18, peak: 0.42 },
+easing: { appear: 'power3.out', assemble: 'power4.inOut', lock: 'back.out(1.4)', reveal: 'power3.out' },
 ```
 
 ### Per-piece transform origin
@@ -235,7 +252,7 @@ By default each piece rotates/scales around **its own bounding-box centre**
 Override for a specific piece when its natural pivot differs:
 
 ```js
-{ id: 'part-door', d: 'M...', fill: 'currentColor', origin: '10% 90%' },
+{ id: 'part-sail-1', d: 'M...', fill: 'currentColor', origin: '10% 90%' },
 ```
 
 ---
@@ -252,7 +269,7 @@ export default function App() {
       <Preloader
         logoParts={LOGO_PARTS}
         viewBox={LOGO_VIEWBOX}
-        brandName="Your Brand"      // or null to skip the name reveal
+        brandName="Preloader"       // or null to skip the name reveal
         onComplete={() => console.log('intro done')}
       />
       {/* your site */}
@@ -304,7 +321,7 @@ Give `<Preloader>` a changing `key` — that's the clean remount:
 
 ## Production checklist
 
-- [ ] Set your `brandName` (currently `"Your Brand"`) or pass `null`.
+- [ ] Set your `brandName` (currently `"Preloader"` in `src/App.jsx`) or pass `null`.
 - [ ] Confirm the palette in `preloader.css`: solid purple `--preloader-bg`
       (`#6C35D4`) and white pieces `--preloader-logo-color` (`#FFFFFF`).
 - [ ] Re-tune `animationConfig.js` timings to taste.

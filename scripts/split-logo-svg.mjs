@@ -1,16 +1,29 @@
 /**
- * split-logo-svg.mjs
+ * split-logo-svg.mjs  (v2 — feature-following split)
  * -----------------------------------------------------------------------------
  * Splits a vector SVG logo into independent, individually-animatable pieces
  * for the preloader — without re-tracing and without approximating the shape.
+ *
+ * v2 changes the *cut strategy*. v1 used a straight 3x4 grid, which ignored the
+ * artwork. v2 cuts along the logo's own structure:
+ *
+ *   ┌──────────────┐
+ *   │    ╱│ sail   │   the curved upper mass, fanned from its bottom-right
+ *   │  ╱  │        │   corner into radial slices
+ *   ├──────────────┤   ← horizontal seam that already exists in the artwork
+ *   │  ╱ band ╱    │   the 45° lower band, sliced perpendicular to its run
+ *   └──────────────┘
  *
  * Pipeline
  *  1. Parse logo.svg: read the group transform + path data.
  *  2. Flatten every curve (cubic/quadratic) into fine line segments.
  *  3. Apply the transform, then normalise the artwork to its own bounding box.
- *  4. Clip the outline against a COLS x ROWS grid (Sutherland-Hodgman).
- *     Because the tiles partition the outline, the pieces reconstruct the logo
- *     exactly — shared edges mean no gaps and no overlaps.
+ *  4. Partition with sequential half-plane clips:
+ *       a. horizontal seam  -> "sail" group + "band" group
+ *       b. sail: radial fan from the corner where its straight edges meet
+ *       c. band: slices perpendicular to the band's principal axis
+ *     Every cut is a plane through one convex region, so the pieces tile the
+ *     artwork exactly: shared edges, no gaps, no overlaps.
  *  5. Emit src/data/logoParts.js + a reference SVG for verification.
  *
  * Usage:  node scripts/split-logo-svg.mjs
@@ -23,12 +36,31 @@ const SRC = 'logo.svg';
 const OUT = 'src/data/logoParts.js';
 const REF_SVG = 'public/logo-reference.svg';
 
-const COLS = 3; // grid columns
-const ROWS = 4; // grid rows
 const FLATTEN_TOL = 1; // curve flattening tolerance, in source units
 const DECIMALS = 2; // coordinate precision in the emitted path data
-const MIN_AREA = 40; // drop clipped slivers smaller than this (viewBox units^2)
+const MIN_AREA = 120; // drop clipped slivers smaller than this (viewBox units^2)
 const FILL = 'currentColor'; // see --preloader-logo-color in preloader.css
+
+/* Feature cuts, expressed as fractions of the artwork bounding box so they
+ * scale with the logo. Values were measured from the artwork itself (see
+ * "Geometry report" printed at the end of a run). */
+const FEATURES = {
+  /* The horizontal edge where the curved mass meets the diagonal band.
+   * 1208.20 / 1747.82 = 0.6913. Pieces above are "sail", below are "band". */
+  seamY: 0.6913,
+
+  /* The sail's two straight edges meet at this corner (bottom-right).
+   * 642.6 / 1400.04 = 0.459. The fan radiates from here. */
+  sailCornerX: 0.459,
+
+  /* Fan the sail into this many radial slices, sweeping from the vertical
+   * right edge towards the horizontal bottom edge. */
+  sailSlices: 4,
+
+  /* Slice the diagonal band into this many segments, perpendicular to its
+   * principal axis (measured from the geometry, not assumed to be 45°). */
+  bandSegments: 5,
+};
 
 /* ── Affine matrix helpers ───────────────────────────────────────────────── */
 const mul = (m, n) => [
@@ -59,7 +91,6 @@ function tokenize(d) {
   return d.match(/[MmLlHhVvCcSsQqTtAaZz]|-?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?/g) || [];
 }
 
-/** Parse path data into subpaths of {type, pts} segments (absolute coords). */
 function parsePath(d) {
   const tk = tokenize(d);
   const subpaths = [];
@@ -70,7 +101,12 @@ function parsePath(d) {
   let cmd = null;
 
   const num = () => Number(tk[i++]);
-  const start = (px, py) => { cur = { start: { x: px, y: py }, segs: [] }; subpaths.push(cur); x = sx = px; y = sy = py; };
+  const start = (px, py) => {
+    cur = { start: { x: px, y: py }, segs: [] };
+    subpaths.push(cur);
+    x = sx = px;
+    y = sy = py;
+  };
 
   while (i < tk.length) {
     if (/[MmLlHhVvCcSsQqTtAaZz]/.test(tk[i])) cmd = tk[i++];
@@ -160,49 +196,17 @@ function flattenCubic(p0, p1, p2, p3, tol, out) {
 }
 
 /* ── Polygon utilities ───────────────────────────────────────────────────── */
-function clipToRect(poly, r) {
-  let out = poly;
-  const passes = [
-    { keep: (p) => p.x >= r.x0, at: 'x', v: r.x0, dir: 1 },
-    { keep: (p) => p.x <= r.x1, at: 'x', v: r.x1, dir: -1 },
-    { keep: (p) => p.y >= r.y0, at: 'y', v: r.y0, dir: 1 },
-    { keep: (p) => p.y <= r.y1, at: 'y', v: r.y1, dir: -1 },
-  ];
-  for (const pass of passes) {
-    const input = out;
-    out = [];
-    for (let i = 0; i < input.length; i++) {
-      const cur = input[i];
-      const prev = input[(i + input.length - 1) % input.length];
-      const curIn = pass.keep(cur), prevIn = pass.keep(prev);
-      const cross = (a, b) => {
-        const t = (pass.v - a[pass.at]) / (b[pass.at] - a[pass.at]);
-        const p = { x: a.x, y: a.y };
-        p[pass.at] = pass.v;
-        p[pass.at === 'x' ? 'y' : 'x'] = a[pass.at === 'x' ? 'y' : 'x'] +
-          t * (b[pass.at === 'x' ? 'y' : 'x'] - a[pass.at === 'x' ? 'y' : 'x']);
-        return p;
-      };
-      if (curIn) {
-        if (!prevIn) out.push(cross(prev, cur));
-        out.push(cur);
-      } else if (prevIn) {
-        out.push(cross(prev, cur));
-      }
-    }
-    if (!out.length) return [];
-  }
-  return out;
-}
-
 function clean(poly) {
   const out = [];
   for (const p of poly) {
     const last = out[out.length - 1];
     if (!last || Math.abs(last.x - p.x) > 1e-6 || Math.abs(last.y - p.y) > 1e-6) out.push(p);
   }
-  while (out.length > 1 && Math.abs(out[0].x - out[out.length - 1].x) < 1e-6 &&
-         Math.abs(out[0].y - out[out.length - 1].y) < 1e-6) out.pop();
+  while (
+    out.length > 1 &&
+    Math.abs(out[0].x - out[out.length - 1].x) < 1e-6 &&
+    Math.abs(out[0].y - out[out.length - 1].y) < 1e-6
+  ) out.pop();
   // Drop collinear points.
   const res = [];
   for (let i = 0; i < out.length; i++) {
@@ -222,8 +226,57 @@ const area = (poly) => {
   return Math.abs(s) / 2;
 };
 
+const centroid = (poly) => {
+  let a = 0, cx = 0, cy = 0;
+  for (let i = 0; i < poly.length; i++) {
+    const p = poly[i], q = poly[(i + 1) % poly.length];
+    const f = p.x * q.y - q.x * p.y;
+    a += f;
+    cx += (p.x + q.x) * f;
+    cy += (p.y + q.y) * f;
+  }
+  if (Math.abs(a) < 1e-9) return poly[0] ?? { x: 0, y: 0 };
+  return { x: cx / (3 * a), y: cy / (3 * a) };
+};
+
 const toPath = (poly) =>
   'M ' + poly.map((p) => `${+p.x.toFixed(DECIMALS)} ${+p.y.toFixed(DECIMALS)}`).join(' L ') + ' Z';
+
+/**
+ * Clip one convex polygon by a half-plane, Sutherland–Hodgman style.
+ * `value(p)` is the signed distance along the cutting plane's normal:
+ * keep points where `keepNegative ? value <= cut : value >= cut`.
+ */
+function clipHalf(poly, value, cut, keepNegative) {
+  const N = poly.length;
+  if (!N) return [];
+  const inside = (v) => (keepNegative ? v <= cut : v >= cut);
+  const out = [];
+  for (let i = 0; i < N; i++) {
+    const cur = poly[i];
+    const prev = poly[(i + N - 1) % N];
+    const vCur = value(cur);
+    const vPrev = value(prev);
+    const curIn = inside(vCur);
+    const prevIn = inside(vPrev);
+    if (curIn) {
+      if (!prevIn) {
+        const t = (cut - vPrev) / (vCur - vPrev);
+        out.push({ x: prev.x + t * (cur.x - prev.x), y: prev.y + t * (cur.y - prev.y) });
+      }
+      out.push(cur);
+    } else if (prevIn) {
+      const t = (cut - vPrev) / (vCur - vPrev);
+      out.push({ x: prev.x + t * (cur.x - prev.x), y: prev.y + t * (cur.y - prev.y) });
+    }
+  }
+  return clean(out);
+}
+
+/** Clip a list of polygons, returning the kept side. */
+function clipAll(polys, value, cut, keepNegative) {
+  return polys.map((p) => clipHalf(p, value, cut, keepNegative)).filter((p) => p.length >= 3);
+}
 
 /* ── 1. Read + parse the source SVG ──────────────────────────────────────── */
 const raw = readFileSync(SRC, 'utf8');
@@ -233,7 +286,7 @@ const pathDs = [...raw.matchAll(/<path[^>]*\bd="([^"]+)"/g)].map((m) => m[1].rep
 if (!pathDs.length) throw new Error(`No <path> found in ${SRC}`);
 
 const M = parseTransform(transformAttr);
-console.log(`source ${SRC}: viewBox="${viewBoxAttr}", ${pathDs.length} path(s), transform="${transformAttr}"`);
+console.log(`${SRC}: viewBox="${viewBoxAttr}", ${pathDs.length} path(s), transform="${transformAttr}"`);
 
 /* ── 2. Flatten every path into transformed polygons ─────────────────────── */
 const polygons = [];
@@ -252,49 +305,172 @@ for (const d of pathDs) {
     polygons.push(pts.map((p) => apply(M, p.x, p.y)));
   }
 }
-const totalPts = polygons.reduce((s, p) => s + p.length, 0);
-console.log(`flattened to ${polygons.length} polygon(s), ${totalPts} points`);
+console.log(`flattened to ${polygons.length} polygon(s), ${polygons.reduce((s, p) => s + p.length, 0)} points`);
 
 /* ── 3. Normalise to the artwork bounding box ────────────────────────────── */
 let X0 = Infinity, Y0 = Infinity, X1 = -Infinity, Y1 = -Infinity;
 for (const poly of polygons) for (const p of poly) {
-  if (p.x < X0) X0 = p.x; if (p.x > X1) X1 = p.x;
-  if (p.y < Y0) Y0 = p.y; if (p.y > Y1) Y1 = p.y;
+  if (p.x < X0) X0 = p.x;
+  if (p.x > X1) X1 = p.x;
+  if (p.y < Y0) Y0 = p.y;
+  if (p.y > Y1) Y1 = p.y;
 }
-const bw = X1 - X0, bh = Y1 - Y0;
+const bw = X1 - X0;
+const bh = Y1 - Y0;
+const local = polygons.map((poly) => poly.map((p) => ({ x: p.x - X0, y: p.y - Y0 })));
 console.log(`artwork bbox: ${bw.toFixed(2)} x ${bh.toFixed(2)} at (${X0.toFixed(2)}, ${Y0.toFixed(2)})`);
 
-const local = polygons.map((poly) => poly.map((p) => ({ x: p.x - X0, y: p.y - Y0 })));
+/* ── 4a. Split at the artwork's own horizontal seam ──────────────────────── */
+const seamY = FEATURES.seamY * bh;
+const byY = (p) => p.y;
+const sailGroup = clipAll(local, byY, seamY, true); // above the seam
+const bandGroup = clipAll(local, byY, seamY, false); // below the seam
 
-/* ── 4. Clip against the grid ────────────────────────────────────────────── */
-const pieces = [];
-for (let r = 0; r < ROWS; r++) {
-  for (let c = 0; c < COLS; c++) {
-    const rect = {
-      x0: (c * bw) / COLS,
-      x1: ((c + 1) * bw) / COLS,
-      y0: (r * bh) / ROWS,
-      y1: ((r + 1) * bh) / ROWS,
-    };
-    const clipped = [];
-    let ink = 0;
-    for (const poly of local) {
-      const piece = clean(clipToRect(poly, rect));
-      if (piece.length >= 3 && area(piece) >= MIN_AREA) { clipped.push(piece); ink += area(piece); }
+/* ── 4b. Fan the sail from its corner ────────────────────────────────────── */
+const corner = { x: FEATURES.sailCornerX * bw, y: seamY };
+
+// Signed area test: is point q counter-clockwise of ray `ang` from `origin`?
+const sideOfRay = (q, ang) =>
+  Math.cos(ang) * (q.y - corner.y) - Math.sin(ang) * (q.x - corner.x);
+
+/**
+ * Split a group by a ray from the sail corner, keeping the requested angular
+ * side. `probeAngle` names which side to keep (a point in that direction).
+ */
+function splitByRay(group, rayAngle, keepProbeAngle) {
+  const keepSign = Math.sign(sideOfRay(
+    { x: corner.x + Math.cos(keepProbeAngle), y: corner.y + Math.sin(keepProbeAngle) },
+    rayAngle,
+  ));
+  const value = (p) => sideOfRay(p, rayAngle) * keepSign;
+  return {
+    keep: clipAll(group, value, 0, false),
+    other: clipAll(group, value, 0, true),
+  };
+}
+
+const DEG = Math.PI / 180;
+const SLICES = Math.max(2, FEATURES.sailSlices);
+const a0 = 180 * DEG; // towards the horizontal bottom edge
+const a1 = 270 * DEG; // towards the vertical right edge (y grows downward)
+const rays = [];
+for (let i = 1; i < SLICES; i++) rays.push(a0 + ((a1 - a0) * i) / SLICES);
+
+// Sequential bisection: each ray peels one angular slice off the current wedge.
+let remaining = sailGroup;
+const fanPieces = []; // ordered from the vertical edge (apex) to the horizontal edge
+let lowerBound = a0;
+for (let i = 0; i < rays.length; i++) {
+  const ray = rays[i];
+  // Keep the *upper* angular part for later slices; peel off the lower slice.
+  const keepProbe = (lowerBound + ray) / 2;
+  const split = splitByRay(remaining, ray, keepProbe);
+  fanPieces.push(split.keep);
+  remaining = split.other;
+  lowerBound = ray;
+}
+fanPieces.push(remaining); // final slice, against the vertical edge
+fanPieces.reverse(); // now: apex/vertical edge -> bottom-left
+// Drop empties.
+const sailPieces = fanPieces.filter((g) => g.reduce((s, p) => s + area(p), 0) >= MIN_AREA);
+
+/* ── 4c. Slice the band perpendicular to its principal axis ──────────────── */
+const bandArea = bandGroup.reduce((s, p) => s + area(p), 0);
+
+/**
+ * Principal axis of a polygon set using AREA moments, not vertex moments.
+ *
+ * Vertex-based PCA is skewed by densely sampled straight edges, which pushed
+ * the band's axis to ~17° instead of its true ~45° run. Integrating over area
+ * gives the strip's real long axis.
+ */
+function areaAxes(polys) {
+  let A = 0, Mx = 0, My = 0, Ixx = 0, Iyy = 0, Ixy = 0;
+  for (const poly of polys) {
+    for (let i = 0; i < poly.length; i++) {
+      const p = poly[i], q = poly[(i + 1) % poly.length];
+      const cross = p.x * q.y - q.x * p.y;
+      A += cross;
+      Mx += (p.x + q.x) * cross;
+      My += (p.y + q.y) * cross;
+      Iyy += (p.x * p.x + p.x * q.x + q.x * q.x) * cross;
+      Ixx += (p.y * p.y + p.y * q.y + q.y * q.y) * cross;
+      Ixy += (p.x * q.y + 2 * p.x * p.y + 2 * q.x * q.y + q.x * p.y) * cross;
     }
-    if (clipped.length) pieces.push({ col: c, row: r, polys: clipped, ink });
   }
-}
-pieces.sort((a, b) => a.row - b.row || a.col - b.col);
-console.log(`split into ${pieces.length} pieces (of ${COLS * ROWS} tiles)`);
-for (const p of pieces) {
-  console.log(`  r${p.row}c${p.col}  polys=${p.polys.length}  pts=${p.polys.reduce((s, x) => s + x.length, 0)}  area=${Math.round(p.ink)}`);
+  A *= 0.5;
+  if (Math.abs(A) < 1e-9) return { angle: Math.PI / 4, cx: 0, cy: 0 };
+  const cx = Mx / (6 * A);
+  const cy = My / (6 * A);
+  const Cxx = Iyy / (12 * A) - cx * cx;
+  const Cyy = Ixx / (12 * A) - cy * cy;
+  const Cxy = Ixy / (24 * A) - cx * cy;
+  return { angle: 0.5 * Math.atan2(2 * Cxy, Cxx - Cyy), cx, cy };
 }
 
-/* ── 5. Emit logoParts.js ────────────────────────────────────────────────── */
+const { angle: axisAngle, cx: bandCx, cy: bandCy } = areaAxes(bandGroup);
+const axis = { x: Math.cos(axisAngle), y: Math.sin(axisAngle) };
+const project = (p) => p.x * axis.x + p.y * axis.y;
+const uMin = Math.min(...bandGroup.flat().map(project));
+const uMax = Math.max(...bandGroup.flat().map(project));
+
+// Sequential guillotine cuts along the axis.
+let rest = bandGroup;
+const bandSlices = [];
+const SEGMENTS = Math.max(1, FEATURES.bandSegments);
+for (let i = 1; i < SEGMENTS; i++) {
+  const cut = uMin + ((uMax - uMin) * i) / SEGMENTS;
+  bandSlices.push(clipAll(rest, project, cut, true));
+  rest = clipAll(rest, project, cut, false);
+}
+bandSlices.push(rest);
+
+/* ── 5. Assemble the piece list ──────────────────────────────────────────── */
+const pieces = [];
+const pushPiece = (id, group) => {
+  const polys = group.filter((p) => area(p) >= 1);
+  if (!polys.length) return;
+  const ink = polys.reduce((s, p) => s + area(p), 0);
+  if (ink < MIN_AREA) return;
+  const pts = polys.flat();
+  const xs = pts.map((p) => p.x), ys = pts.map((p) => p.y);
+  pieces.push({
+    id,
+    polys,
+    ink,
+    bbox: [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)],
+    centroid: centroid(polys[0]),
+  });
+};
+
+// Naming is the animation stagger order: sail from the apex down to the left,
+// then the band from its upper-left end to its lower-right end.
+sailPieces.forEach((g, i) => pushPiece(`part-sail-${i + 1}`, g));
+bandSlices.forEach((g, i) => pushPiece(`part-band-${i + 1}`, g));
+
+const totalInk = pieces.reduce((s, p) => s + p.ink, 0);
+const artworkArea = local.reduce((s, p) => s + area(p), 0);
+console.log(`\nseam y=${seamY.toFixed(2)}  band axis=${((axisAngle * 180) / Math.PI).toFixed(1)}°  band centre=(${bandCx.toFixed(0)},${bandCy.toFixed(0)})`);
+console.log(`split into ${pieces.length} feature pieces (${sailPieces.length} sail + ${bandSlices.length} band)`);
+
+for (const p of pieces) {
+  const [x0, y0, x1, y1] = p.bbox;
+  console.log(
+    `  ${p.id.padEnd(14)} polys=${String(p.polys.length).padStart(2)} ` +
+    `pts=${String(p.polys.reduce((s, q) => s + q.length, 0)).padStart(3)} ` +
+    `area=${String(Math.round(p.ink)).padStart(6)} ` +
+    `bbox=[${x0.toFixed(0)},${y0.toFixed(0)} ${(x1 - x0).toFixed(0)}x${(y1 - y0).toFixed(0)}]`,
+  );
+}
+console.log(
+  `total piece area=${Math.round(totalInk)}  artwork area=${Math.round(artworkArea)}  ` +
+  `delta=${(totalInk - artworkArea).toFixed(2)} (${(((totalInk - artworkArea) / artworkArea) * 100).toFixed(4)}%)`,
+);
+
+/* ── 6. Emit logoParts.js ────────────────────────────────────────────────── */
 const entries = pieces.map((p) => {
   const ds = p.polys.map(toPath);
-  const lines = [`    id: 'part-r${p.row}c${p.col}',`];
+  const lines = [`    id: '${p.id}',`];
   if (ds.length === 1) lines.push(`    d: '${ds[0]}',`);
   else {
     lines.push('    paths: [');
@@ -308,10 +484,12 @@ const entries = pieces.map((p) => {
 const out = `/**
  * logoParts.js — GENERATED by scripts/split-logo-svg.mjs
  * -----------------------------------------------------------------------------
- * Source: ${SRC}  ·  split ${COLS}x${ROWS} = ${pieces.length} pieces.
+ * Source: ${SRC}  ·  ${pieces.length} feature-following pieces
+ * (${sailPieces.length} sail slices + ${bandSlices.length} band segments).
  *
- * These are real vector pieces clipped from your logo's own path data — the
- * tiles partition the artwork, so their union reconstructs it exactly.
+ * These are real vector pieces clipped from your logo's own path data along its
+ * own structural lines — not a grid. The pieces partition the artwork, so their
+ * union reconstructs it exactly.
  *
  * Regenerate with:  node scripts/split-logo-svg.mjs
  */
@@ -326,8 +504,10 @@ export default LOGO_PARTS;
 mkdirSync(dirname(OUT), { recursive: true });
 writeFileSync(OUT, out);
 
-/* ── 6. Reference SVG for verification / eyeballing ──────────────────────── */
-const refPaths = pieces.map((p) => p.polys.map((poly) => `  <path d="${toPath(poly)}"/>`).join('\n')).join('\n');
+/* ── 7. Reference SVG for verification / eyeballing ──────────────────────── */
+const refPaths = pieces
+  .map((p) => p.polys.map((poly) => `  <path d="${toPath(poly)}"/>`).join('\n'))
+  .join('\n');
 mkdirSync(dirname(REF_SVG), { recursive: true });
 writeFileSync(
   REF_SVG,

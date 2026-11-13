@@ -21,8 +21,8 @@ export const ANIMATION_CONFIG = {
 
   // Gap between each individual piece inside a phase.
   stagger: {
-    appear: 0.06,
-    assemble: 0.1,
+    appear: 0.07,
+    assemble: 0.12,
   },
 
   /**
@@ -31,35 +31,35 @@ export const ANIMATION_CONFIG = {
    * `max` radius, so the spread is even but never looks like a grid.
    */
   scatter: {
-    spread: { min: 0.55, max: 1.15 },
+    spread: { min: 0.65, max: 1.35 },
     angleOffset: 0.6, // rotate the whole spiral (radians)
   },
 
   rotation: {
-    appear: 26, // degrees each piece is tilted while scattered
+    appear: 34, // degrees each piece is tilted while scattered
   },
 
   scale: {
-    appear: 0.6, // scale the instant a piece becomes visible
-    appearEnd: 1.12, // scale at the end of Phase 1 (slight overshoot)
-    lockPop: 1.04, // settle pop during Phase 3
+    appear: 0.45, // scale the instant a piece becomes visible
+    appearEnd: 1.08, // scale at the end of Phase 1 (slight overshoot)
+    lockPop: 1.03, // settle pop during Phase 3
   },
 
   easing: {
-    appear: 'power2.out',
-    assemble: 'power3.inOut',
-    lock: 'back.out(1.7)',
-    reveal: 'power2.out',
+    appear: 'power3.out',
+    assemble: 'power4.inOut', // long, weighted glide into place
+    lock: 'back.out(1.4)',
+    reveal: 'power3.out',
   },
 
   glow: {
     rgb: '255, 255, 255', // subtle white highlight against the purple
-    strength: 14, // peak drop-shadow blur radius in px
-    peak: 0.5, // peak alpha of the glow
+    strength: 18, // peak drop-shadow blur radius in px
+    peak: 0.42, // peak alpha of the glow
   },
 
   // How long the overlay takes to fade out once the logo is assembled.
-  overlayExit: 0.6,
+  overlayExit: 0.7,
 };
 
 export default ANIMATION_CONFIG;

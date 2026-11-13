@@ -22,7 +22,7 @@ export default function App() {
         key={runId}
         logoParts={LOGO_PARTS}
         viewBox={LOGO_VIEWBOX}
-        brandName="Your Brand"
+        brandName="Preloader"
         onComplete={() => setReady(true)}
       />
 
