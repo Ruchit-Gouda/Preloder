@@ -1,0 +1,154 @@
+/* ==========================================================================
+   preloader.css
+   Responsive, dependency-free styling for the logo-assembly preloader.
+   Tune the custom properties below, not the individual rules.
+   ========================================================================== */
+
+:root {
+  --preloader-bg: #0a0c10;
+  --preloader-bg-glow: #12161d;
+  --preloader-accent: #7dd3fc;
+  --preloader-logo-color: #7e49f2; /* sampled from logo.png */
+  --preloader-brand-color: #aeb7c6;
+  --preloader-z: 9999;
+}
+
+/* --------------------------------------------------------------------------
+   Overlay
+   -------------------------------------------------------------------------- */
+.preloader {
+  position: fixed;
+  inset: 0;
+  z-index: var(--preloader-z);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  background: var(--preloader-bg);
+  background-image: radial-gradient(
+    120% 90% at 50% 40%,
+    var(--preloader-bg-glow) 0%,
+    var(--preloader-bg) 65%
+  );
+}
+
+/* --------------------------------------------------------------------------
+   Stage: the flex column that holds the SVG + brand name
+   -------------------------------------------------------------------------- */
+.logo-stage {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: clamp(1rem, 3.5vw, 2rem);
+  padding: 6vmin;
+  color: var(--preloader-logo-color);
+  /* Starts invisible so the un-scattered logo never flashes before GSAP sets
+     the Phase-1 state; the timeline fades it in. */
+  opacity: 0;
+  will-change: transform, opacity, filter;
+}
+
+/* --------------------------------------------------------------------------
+   Logo SVG — fluid across desktop / tablet / mobile
+   -------------------------------------------------------------------------- */
+.logo-svg {
+  /* Never wider than the viewport, never larger than 46vmin tall. */
+  width: min(46vmin, 82vw);
+  height: auto;
+  display: block;
+  /* Pieces intentionally travel outside the viewBox during the intro. */
+  overflow: visible;
+}
+
+/* Each piece is its own coordinate space. `fill-box` makes every transform
+   origin resolve to that piece's OWN bounding-box centre — this is the "each
+   piece needs its own transform origin" requirement. Individual pieces can
+   still override the origin via the `origin` field in logoParts.js. */
+.logo-part {
+  transform-box: fill-box;
+  transform-origin: center center;
+  will-change: transform, opacity;
+  /* Keep edges crisp while GSAP drives the matrix. */
+  shape-rendering: geometricPrecision;
+}
+
+/* --------------------------------------------------------------------------
+   Brand name (Phase 4)
+   -------------------------------------------------------------------------- */
+.logo-brand {
+  font-family: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto,
+    Helvetica, Arial, sans-serif;
+  font-size: clamp(0.85rem, 2.4vw, 1.35rem);
+  font-weight: 600;
+  letter-spacing: 0.42em;
+  text-indent: 0.42em; /* optically re-centre the tracked-out text */
+  text-transform: uppercase;
+  color: var(--preloader-brand-color);
+  white-space: nowrap;
+  opacity: 0; /* GSAP fades this in; avoids a flash if JS is slow. */
+}
+
+/* --------------------------------------------------------------------------
+   Reduced motion: no scattered flight, just the settled logo.
+   -------------------------------------------------------------------------- */
+@media (prefers-reduced-motion: reduce) {
+  .logo-part,
+  .logo-brand {
+    will-change: auto;
+  }
+}
+
+/* --------------------------------------------------------------------------
+   Demo page (App.jsx) — remove or restyle for your own site.
+   -------------------------------------------------------------------------- */
+.demo-page {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1.5rem;
+  padding: 2rem;
+  text-align: center;
+  background: #0a0c10;
+  color: #e8ecf4;
+  font-family: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto,
+    Helvetica, Arial, sans-serif;
+}
+
+.demo-page h1 {
+  margin: 0;
+  font-size: clamp(1.5rem, 5vw, 2.75rem);
+  letter-spacing: -0.02em;
+}
+
+.demo-page p {
+  margin: 0;
+  max-width: 46ch;
+  color: #9aa4b5;
+  line-height: 1.6;
+}
+
+.demo-replay {
+  margin-top: 0.5rem;
+  padding: 0.7rem 1.4rem;
+  border: 1px solid #2a3240;
+  border-radius: 999px;
+  background: transparent;
+  color: #e8ecf4;
+  font: inherit;
+  font-size: 0.9rem;
+  cursor: pointer;
+  transition: background 0.2s ease, border-color 0.2s ease;
+}
+
+.demo-replay:hover {
+  background: #161b24;
+  border-color: #3a4557;
+}
+
+.demo-replay:focus-visible {
+  outline: 2px solid var(--preloader-accent);
+  outline-offset: 2px;
+}

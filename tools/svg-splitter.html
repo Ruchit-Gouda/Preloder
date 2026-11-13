@@ -1,0 +1,340 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>SVG → logoParts.js splitter</title>
+    <style>
+      :root { color-scheme: dark; }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0; background: #0a0c10; color: #e8ecf4;
+        font: 14px/1.5 ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      }
+      header { padding: 18px 22px; border-bottom: 1px solid #1d2430; }
+      h1 { margin: 0 0 4px; font-size: 17px; letter-spacing: .01em; }
+      header p { margin: 0; color: #8d97a8; font-size: 12.5px; }
+      main { display: grid; grid-template-columns: 1fr 1fr; min-height: calc(100vh - 78px); }
+      .col { padding: 18px 22px; min-width: 0; }
+      .col + .col { border-left: 1px solid #1d2430; }
+      textarea {
+        width: 100%; height: 190px; resize: vertical; padding: 12px;
+        background: #0e1219; color: #cfe3ff; border: 1px solid #232c3a;
+        border-radius: 8px; font: 12px/1.5 ui-monospace, "Cascadia Code", Consolas, monospace;
+      }
+      .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin: 12px 0; }
+      button {
+        padding: 8px 14px; border-radius: 8px; border: 1px solid #2a3240;
+        background: #141a24; color: #e8ecf4; font: inherit; font-size: 13px; cursor: pointer;
+      }
+      button:hover { background: #1b2330; }
+      button.primary { background: #1d4ed8; border-color: #2563eb; }
+      button.primary:hover { background: #2563eb; }
+      button:disabled { opacity: .45; cursor: not-allowed; }
+      #preview {
+        border: 1px dashed #232c3a; border-radius: 10px; padding: 16px;
+        display: grid; place-items: center; min-height: 240px; background: #0b0f15;
+      }
+      #preview svg { max-width: 100%; max-height: 300px; }
+      .part-outline { fill: rgba(125,211,252,.14); stroke: #7dd3fc; stroke-width: 1.2; }
+      .part-selected { fill: rgba(250,204,21,.28); stroke: #facc15; }
+      .hint { color: #8d97a8; font-size: 12.5px; }
+      ul { list-style: none; margin: 10px 0 0; padding: 0; max-height: 220px; overflow: auto; }
+      li {
+        display: flex; align-items: center; gap: 8px; padding: 7px 9px;
+        border: 1px solid #1d2430; border-radius: 7px; margin-bottom: 6px; background: #0e1219;
+      }
+      li code { color: #7dd3fc; font-size: 12px; }
+      li input {
+        flex: 1; min-width: 0; background: #0a0e14; border: 1px solid #232c3a;
+        color: #e8ecf4; border-radius: 6px; padding: 5px 7px; font: 12px ui-monospace, monospace;
+      }
+      li button { padding: 4px 9px; font-size: 12px; }
+      #out { height: 320px; }
+      .err { color: #fca5a5; }
+      .ok { color: #86efac; }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>SVG → <code>logoParts.js</code> splitter</h1>
+      <p>Drop in your logo, pick the shapes, export a ready-to-paste parts array. Nothing leaves your browser.</p>
+    </header>
+
+    <main>
+      <section class="col">
+        <div class="row">
+          <input type="file" id="file" accept=".svg,image/svg+xml" />
+          <button id="load">Load pasted SVG</button>
+        </div>
+        <textarea id="svg" placeholder="…or paste the raw &lt;svg&gt; markup here"></textarea>
+
+        <div id="preview"><span class="hint">Preview appears here</span></div>
+        <p class="hint" id="vb"></p>
+
+        <div class="row">
+          <button id="auto">Auto-select all shapes</button>
+          <button id="clear">Clear selection</button>
+        </div>
+      </section>
+
+      <section class="col">
+        <p class="hint">
+          Click shapes in the preview to select them, then rename. Selection order = animation stagger order.
+        </p>
+        <ul id="list"></ul>
+
+        <div class="row">
+          <button id="export" class="primary" disabled>Export logoParts.js</button>
+          <button id="copy" disabled>Copy</button>
+          <button id="download" disabled>Download</button>
+        </div>
+        <textarea id="out" readonly placeholder="Exported array appears here"></textarea>
+        <p class="hint" id="status"></p>
+      </section>
+    </main>
+
+    <script>
+      const $ = (id) => document.getElementById(id);
+      const previewEl = $('preview');
+      const listEl = $('list');
+      const outEl = $('out');
+      const statusEl = $('status');
+
+      /** @type {{el: SVGGraphicsElement, id: string}[]} */
+      let selected = [];
+      let shapes = [];
+      let viewBox = '0 0 240 240';
+
+      const SVG_NS = 'http://www.w3.org/2000/svg';
+      const DRAWABLE = 'path,circle,rect,polygon,ellipse,line,polyline';
+
+      function setStatus(msg, kind = '') {
+        statusEl.textContent = msg;
+        statusEl.className = 'hint ' + kind;
+      }
+
+      function parseSvg(markup) {
+        const doc = new DOMParser().parseFromString(markup, 'image/svg+xml');
+        if (doc.querySelector('parsererror')) throw new Error('Could not parse that SVG markup.');
+        const svg = doc.querySelector('svg');
+        if (!svg) throw new Error('No <svg> element found.');
+        return svg;
+      }
+
+      function collectShapes(svg) {
+        // Prefer existing <g> groups (already-split logos); otherwise take
+        // every top-level drawable element.
+        const groups = Array.from(svg.querySelectorAll('g')).filter(
+          (g) => g.querySelector(DRAWABLE) && g.id,
+        );
+        if (groups.length > 1) return groups;
+        return Array.from(svg.querySelectorAll(DRAWABLE));
+      }
+
+      function loadSvg(markup) {
+        let svg;
+        try {
+          svg = parseSvg(markup);
+        } catch (e) {
+          setStatus(e.message, 'err');
+          return;
+        }
+        viewBox = svg.getAttribute('viewBox') || viewBox;
+
+        // Clone into the live document so we can measure real geometry.
+        const live = svg.cloneNode(true);
+        live.removeAttribute('width');
+        live.removeAttribute('height');
+        previewEl.replaceChildren(live);
+
+        shapes = collectShapes(live);
+        selected = [];
+        renderList();
+        updateStatus();
+        $('vb').textContent =
+          `viewBox = "${viewBox}"  ·  ${shapes.length} shape(s) detected. ` +
+          `Use this exact viewBox in LogoAnimation / logoParts.js.`;
+      }
+
+      function renderList() {
+        listEl.replaceChildren();
+        selected.forEach((item, i) => {
+          const li = document.createElement('li');
+          const idx = document.createElement('code');
+          idx.textContent = `#${i + 1}`;
+
+          const input = document.createElement('input');
+          input.value = item.id;
+          input.setAttribute('aria-label', 'Part id');
+          input.addEventListener('input', () => {
+            item.id = input.value.trim() || `part-${i + 1}`;
+            updateExport();
+          });
+
+          const remove = document.createElement('button');
+          remove.textContent = 'Remove';
+          remove.addEventListener('click', () => {
+            item.el.classList.remove('part-selected', 'part-outline');
+            selected = selected.filter((s) => s !== item);
+            renderList();
+            updateStatus();
+          });
+
+          li.append(idx, input, remove);
+          listEl.append(li);
+        });
+        updateExport();
+      }
+
+      function toggleShape(el) {
+        const existing = selected.find((s) => s.el === el);
+        if (existing) {
+          el.classList.remove('part-selected');
+          el.classList.add('part-outline');
+          selected = selected.filter((s) => s !== existing);
+        } else {
+          const n = selected.length + 1;
+          el.classList.add('part-selected');
+          el.classList.remove('part-outline');
+          selected.push({ el, id: suggestId(el, n) });
+        }
+        renderList();
+        updateStatus();
+      }
+
+      function suggestId(el, n) {
+        const raw =
+          el.id ||
+          el.getAttribute('data-name') ||
+          el.getAttribute('inkscape:label') ||
+          el.tagName.toLowerCase();
+        const slug = raw
+          .toLowerCase()
+          .replace(/[^a-z0-9]+/g, '-')
+          .replace(/^-+|-+$/g, '');
+        return /^part-/.test(slug) || !slug ? `part-${n}` : `part-${slug}`;
+      }
+
+      function geometryOf(el) {
+        // Export a single `d` path. Primitives are converted in-place with
+        // getBBox-relative transforms already baked by the browser's render.
+        if (el.tagName.toLowerCase() === 'path') return { d: el.getAttribute('d') };
+        // For non-path primitives, ask the browser to keep them as-is and
+        // export an explicit element descriptor instead of faking a path.
+        return { d: null, raw: el.outerHTML };
+      }
+
+      function originOf(el) {
+        // transform-box: fill-box makes "center" the piece's own centre, which
+        // is what the preloader uses by default — so we usually omit origin.
+        // We only emit one when the piece's visual pivot clearly is not its
+        // bbox centre (e.g. text-ish or open strokes). Kept simple: omit.
+        return null;
+      }
+
+      function updateExport() {
+        if (!selected.length) {
+          outEl.value = '';
+          $('export').disabled = $('copy').disabled = $('download').disabled = true;
+          return;
+        }
+        $('export').disabled = false;
+      }
+
+      function updateStatus() {
+        setStatus(`${selected.length} of ${shapes.length} shape(s) selected.`);
+      }
+
+      function buildOutput() {
+        const lines = selected.map((item, i) => {
+          const g = geometryOf(item.el);
+          const parts = [`    id: '${item.id}',`];
+          if (g.d) parts.push(`    d: '${g.d}',`);
+          else parts.push(`    // TODO: convert this ${item.el.tagName.toLowerCase()} to a <path> (see README),`);
+          parts.push(`    fill: 'currentColor',`);
+          return `  {\n${parts.join('\n')}\n  },`;
+        });
+        return (
+          `export const LOGO_VIEWBOX = '${viewBox}';\n\n` +
+          `export const LOGO_PARTS = [\n${lines.join('\n')}\n];\n`
+        );
+      }
+
+      // ── wiring ──────────────────────────────────────────────────────────
+      $('load').addEventListener('click', () => {
+        const v = $('svg').value.trim();
+        if (!v) return setStatus('Paste some SVG first.', 'err');
+        loadSvg(v);
+      });
+
+      $('file').addEventListener('change', (e) => {
+        const f = e.target.files?.[0];
+        if (!f) return;
+        const reader = new FileReader();
+        reader.onload = () => loadSvg(String(reader.result));
+        reader.readAsText(f);
+      });
+
+      $('auto').addEventListener('click', () => {
+        shapes.forEach((el) => {
+          if (!selected.find((s) => s.el === el)) {
+            el.classList.add('part-selected');
+            selected.push({ el, id: suggestId(el, selected.length + 1) });
+          }
+        });
+        renderList();
+        updateStatus();
+      });
+
+      $('clear').addEventListener('click', () => {
+        shapes.forEach((el) => el.classList.remove('part-selected', 'part-outline'));
+        selected = [];
+        renderList();
+        updateStatus();
+      });
+
+      $('export').addEventListener('click', () => {
+        outEl.value = buildOutput();
+        $('copy').disabled = $('download').disabled = false;
+        setStatus('Exported. Paste into src/data/logoParts.js.', 'ok');
+      });
+
+      $('copy').addEventListener('click', async () => {
+        try {
+          await navigator.clipboard.writeText(outEl.value);
+          setStatus('Copied to clipboard.', 'ok');
+        } catch {
+          setStatus('Copy failed — select the text manually.', 'err');
+        }
+      });
+
+      $('download').addEventListener('click', () => {
+        const blob = new Blob([outEl.value], { type: 'text/javascript' });
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = 'logoParts.js';
+        a.click();
+        URL.revokeObjectURL(a.href);
+      });
+
+      // Click-to-select in the preview (delegated).
+      previewEl.addEventListener('click', (e) => {
+        const target = e.target.closest(DRAWABLE + ', g[id]');
+        if (!target || !shapes.includes(target)) return;
+        toggleShape(target);
+      });
+
+      previewEl.addEventListener('mouseover', (e) => {
+        const target = e.target.closest(DRAWABLE + ', g[id]');
+        if (target && shapes.includes(target) && !selected.find((s) => s.el === target)) {
+          target.classList.add('part-outline');
+        }
+      });
+      previewEl.addEventListener('mouseout', (e) => {
+        const target = e.target.closest(DRAWABLE + ', g[id]');
+        if (target) target.classList.remove('part-outline');
+      });
+    </script>
+  </body>
+</html>
