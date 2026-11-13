@@ -245,6 +245,30 @@ glow:   { rgb: '255, 255, 255', strength: 18, peak: 0.42 },
 easing: { appear: 'power3.out', assemble: 'power4.inOut', lock: 'back.out(1.4)', reveal: 'power3.out' },
 ```
 
+### Pointer zoom parallax
+
+The assembled mark follows the cursor: it shifts, tilts in 3D and zooms slightly.
+The brand name sits on a shallower layer and travels `brandDepth` times as far,
+so mark and wordmark move at different rates — that difference is the parallax.
+
+```js
+parallax: {
+  enabled: true,
+  activateAt: 0,     // seconds; use 3.0 to start only after assembly
+  shift: 18,         // max x/y travel in px
+  tilt: 6,           // max rotateX / rotateY in degrees
+  zoom: 0.045,       // extra scale at full pointer deflection
+  brandDepth: 0.45,  // brand travel as a fraction of the mark's
+  smoothing: 0.5,    // quickTo settle time in seconds
+  perspective: 900,  // 3D perspective in px
+},
+```
+
+Set `enabled: false` to turn it off. It runs on a dedicated `.logo-parallax`
+wrapper (with the brand on an inner `.logo-brand-depth` span), so it never
+fights the assembly timeline's transforms, and it is skipped entirely under
+`prefers-reduced-motion: reduce`.
+
 ### Per-piece transform origin
 
 By default each piece rotates/scales around **its own bounding-box centre**
@@ -313,6 +337,9 @@ Give `<Preloader>` a changing `key` — that's the clean remount:
   assembled logo and completes almost immediately.
 - **60 FPS.** Only `transform` and `opacity` are animated (compositor-friendly);
   the Phase-3 glow is a single `drop-shadow` on one element, not per piece.
+- **Parallax is isolated.** Cursor motion drives a dedicated wrapper layer via
+  `gsap.quickTo()` (scale split into `scaleX`/`scaleY`); listeners and tweens are
+  removed on unmount, so it cannot leak or fight the timeline.
 - **Scroll lock.** `body` overflow is locked while the overlay is visible.
 - **Responsive.** The SVG is `min(46vmin, 82vw)`; typography uses `clamp()`.
   Pieces travel outside the `viewBox`, so the SVG uses `overflow: visible`.
@@ -325,6 +352,8 @@ Give `<Preloader>` a changing `key` — that's the clean remount:
 - [ ] Confirm the palette in `preloader.css`: solid purple `--preloader-bg`
       (`#6C35D4`) and white pieces `--preloader-logo-color` (`#FFFFFF`).
 - [ ] Re-tune `animationConfig.js` timings to taste.
+- [ ] Optionally disable or delay the pointer parallax (`parallax.enabled`,
+      `parallax.activateAt`).
 - [ ] Delete the `.demo-page` markup and replay button in `src/App.jsx`
       (and its CSS at the bottom of `preloader.css`).
 - [ ] Optionally delete `public/logo-reference.svg`.

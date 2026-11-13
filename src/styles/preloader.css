@@ -47,6 +47,14 @@
 /* --------------------------------------------------------------------------
    Logo SVG — fluid across desktop / tablet / mobile
    -------------------------------------------------------------------------- */
+.logo-parallax {
+  display: block;
+  /* Dedicated layer for cursor parallax; the timeline animates .logo-stage and
+     the pieces, never this wrapper, so the transforms compose cleanly. */
+  transform-origin: 50% 50%;
+  will-change: transform;
+}
+
 .logo-svg {
   /* Never wider than the viewport, never larger than 46vmin tall. */
   width: min(46vmin, 82vw);
@@ -54,6 +62,13 @@
   display: block;
   /* Pieces intentionally travel outside the viewBox during the intro. */
   overflow: visible;
+}
+
+/* The brand name sits on its own layer so it parallaxes at a different rate
+   from the mark. Inline-block is required for transforms on inline content. */
+.logo-brand-depth {
+  display: inline-block;
+  will-change: transform;
 }
 
 /* Each piece is its own coordinate space. `fill-box` makes every transform
@@ -89,7 +104,9 @@
    -------------------------------------------------------------------------- */
 @media (prefers-reduced-motion: reduce) {
   .logo-part,
-  .logo-brand {
+  .logo-parallax,
+  .logo-brand,
+  .logo-brand-depth {
     will-change: auto;
   }
 }

@@ -78,7 +78,9 @@ export default function LogoAnimation({
   onComplete,
 }) {
   const stageRef = useRef(null);
+  const parallaxRef = useRef(null);
   const brandRef = useRef(null);
+  const brandDepthRef = useRef(null);
 
   // Keep the latest callback without making it a dependency of the timeline
   // effect (a new function identity must never restart the animation).
@@ -116,7 +118,12 @@ export default function LogoAnimation({
       return () => call.kill();
     }
 
-    const { phases, stagger, rotation, scale, easing, glow } = config;
+    const { phases, stagger, rotation, scale, easing, glow, parallax } = config;
+
+    // Set by a timeline callback at `parallax.activateAt`, so the effect can be
+    // held back until the mark has assembled (or start immediately at 0).
+    let parallaxActive = false;
+    let detachParallax = () => {};
 
     // gsap.context scopes every selector to `stage` and lets ctx.revert()
     // fully undo inline styles + tweens on unmount (no leaks, no stale refs).
@@ -125,6 +132,16 @@ export default function LogoAnimation({
       const brand = brandRef.current;
 
       const tl = gsap.timeline({ defaults: { ease: easing.assemble }, onComplete: finish });
+
+      if (parallax?.enabled) {
+        tl.call(
+          () => {
+            parallaxActive = true;
+          },
+          null,
+          Math.max(0, parallax.activateAt ?? 0),
+        );
+      }
 
       /* ── PHASE 1 · appear ─────────────────────────────────────────────── */
       // Reveal the stage itself (CSS starts it at opacity 0 to avoid a flash).
@@ -228,25 +245,110 @@ export default function LogoAnimation({
       tl.to({}, { duration: phases.reveal.duration }, phases.reveal.start);
     }, stage);
 
-    return () => ctx.revert();
+    /* ── Pointer zoom parallax ──────────────────────────────────────────────
+     * Runs on a dedicated wrapper so it never fights the timeline's piece or
+     * stage transforms. quickTo keeps this allocation-free at 60 FPS; the brand
+     * sits on a shallower inner layer and travels a fraction of the distance.
+     */
+    if (parallax?.enabled) {
+      const layer = parallaxRef.current;
+      const brandLayer = brandDepthRef.current;
+
+      if (layer) {
+        const p = parallax;
+        const smooth = { duration: p.smoothing, ease: 'power3.out' };
+
+        gsap.set(layer, {
+          transformPerspective: p.perspective,
+          transformOrigin: '50% 50%',
+        });
+
+        const xTo = gsap.quickTo(layer, 'x', smooth);
+        const yTo = gsap.quickTo(layer, 'y', smooth);
+        const rotXTo = gsap.quickTo(layer, 'rotationX', smooth);
+        const rotYTo = gsap.quickTo(layer, 'rotationY', smooth);
+        // `quickTo('scale')` can't resetTo() a split property — use the axis pair.
+        const zoomXTo = gsap.quickTo(layer, 'scaleX', smooth);
+        const zoomYTo = gsap.quickTo(layer, 'scaleY', smooth);
+
+        const bxTo = brandLayer ? gsap.quickTo(brandLayer, 'x', smooth) : null;
+        const byTo = brandLayer ? gsap.quickTo(brandLayer, 'y', smooth) : null;
+
+        const onPointerMove = (event) => {
+          if (!parallaxActive) return;
+
+          // -1 .. 1 from the viewport centre.
+          const nx = (event.clientX / window.innerWidth - 0.5) * 2;
+          const ny = (event.clientY / window.innerHeight - 0.5) * 2;
+          const reach = Math.min(1, Math.hypot(nx, ny));
+
+          xTo(nx * p.shift);
+          yTo(ny * p.shift);
+          rotYTo(nx * p.tilt);
+          rotXTo(-ny * p.tilt);
+          const zoom = 1 + p.zoom * reach;
+          zoomXTo(zoom);
+          zoomYTo(zoom);
+
+          if (bxTo) {
+            bxTo(nx * p.shift * p.brandDepth);
+            byTo(ny * p.shift * p.brandDepth);
+          }
+        };
+
+        const reset = () => {
+          if (!parallaxActive) return;
+          xTo(0);
+          yTo(0);
+          rotXTo(0);
+          rotYTo(0);
+          zoomXTo(1);
+          zoomYTo(1);
+          bxTo?.(0);
+          byTo?.(0);
+        };
+
+        window.addEventListener('pointermove', onPointerMove, { passive: true });
+        window.addEventListener('blur', reset);
+        document.addEventListener('pointerleave', reset);
+
+        detachParallax = () => {
+          window.removeEventListener('pointermove', onPointerMove);
+          window.removeEventListener('blur', reset);
+          document.removeEventListener('pointerleave', reset);
+          const layers = [layer, brandLayer].filter(Boolean);
+          gsap.killTweensOf(layers);
+          gsap.set(layers, { clearProps: 'transform,transformPerspective' });
+        };
+      }
+    }
+
+    return () => {
+      detachParallax();
+      ctx.revert();
+    };
   }, [play, parts.length, scatter, config]);
 
   return (
     <div className="logo-stage" ref={stageRef}>
-      <svg
-        className="logo-svg"
-        viewBox={viewBox}
-        xmlns="http://www.w3.org/2000/svg"
-        role="img"
-        aria-label={brandName ? `${brandName} logo` : 'Logo'}
-        preserveAspectRatio="xMidYMid meet"
-      >
-        <LogoParts parts={parts} />
-      </svg>
+      <div className="logo-parallax" ref={parallaxRef}>
+        <svg
+          className="logo-svg"
+          viewBox={viewBox}
+          xmlns="http://www.w3.org/2000/svg"
+          role="img"
+          aria-label={brandName ? `${brandName} logo` : 'Logo'}
+          preserveAspectRatio="xMidYMid meet"
+        >
+          <LogoParts parts={parts} />
+        </svg>
+      </div>
 
       {brandName ? (
         <div className="logo-brand" ref={brandRef}>
-          {brandName}
+          <span className="logo-brand-depth" ref={brandDepthRef}>
+            {brandName}
+          </span>
         </div>
       ) : null}
     </div>

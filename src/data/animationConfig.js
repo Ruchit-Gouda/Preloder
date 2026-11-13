@@ -58,6 +58,25 @@ export const ANIMATION_CONFIG = {
     peak: 0.42, // peak alpha of the glow
   },
 
+  /**
+   * Pointer-driven zoom parallax.
+   *
+   * The mark tilts and drifts with the cursor, and zooms slightly as the
+   * pointer moves away from centre. The brand name sits on a shallower layer,
+   * so mark and wordmark travel at different rates — that difference is the
+   * parallax. Set `enabled: false` to disable it entirely.
+   */
+  parallax: {
+    enabled: true,
+    activateAt: 0, // seconds on the timeline; 3.0 = after assembly
+    shift: 18, // max x/y travel in px at full deflection
+    tilt: 6, // max rotateX / rotateY in degrees
+    zoom: 0.045, // max extra scale at full pointer deflection
+    brandDepth: 0.45, // brand travel as a fraction of the mark's
+    smoothing: 0.5, // quickTo settle time in seconds
+    perspective: 900, // 3D perspective in px
+  },
+
   // How long the overlay takes to fade out once the logo is assembled.
   overlayExit: 0.7,
 };
